@@ -7,13 +7,58 @@
 #define max(x, y) (((x) > (y)) ? (x) : (y))
 
 /*assume b is non-negative*/
-unsigned long long power(unsigned long long a, int b) {
+uint64_t power(uint64_t a, int b) {
     if (!b)
         return 1;
-    unsigned long long c = a;
+    uint64_t c = a;
     for (int i = 1; i < b; i++)
         c *= a;
     return c;
+}
+
+void double_dabble(int n, const uint64_t *arr, char **result)
+{
+    int nbits = 64*n;         /* length of arr in bits */
+    int nscratch = nbits/3;   /* length of scratch in bytes */
+    char *scratch = calloc(1 + nscratch, sizeof *scratch);
+    int i, j, k;
+    int smin = nscratch-2;    /* speed optimization */
+
+    for (i=n-1; i >= 0; --i) {
+        for (j=0; j < 64; ++j) {
+            /* This bit will be shifted in on the right. */
+            int shifted_in = (arr[i] & ((uint64_t)1 << (63-j)))? 1: 0;
+            /* Add 3 everywhere that scratch[k] >= 5. */
+            for (k=smin; k < nscratch; ++k)
+              scratch[k] += (scratch[k] >= 5)? 3: 0;
+
+            /* Shift scratch to the left by one position. */
+            if (scratch[smin] >= 8)
+              smin -= 1;
+            for (k=smin; k < nscratch-1; ++k) {
+                scratch[k] <<= 1;
+                scratch[k] &= 0xF;
+                scratch[k] |= (scratch[k+1] >= 8);
+            }
+
+            /* Shift in the new bit from arr. */
+            scratch[nscratch-1] <<= 1;
+            scratch[nscratch-1] &= 0xF;
+            scratch[nscratch-1] |= shifted_in;
+        }
+    }
+
+    /* Remove leading zeros from the scratch space. */
+    for (k=0; k < nscratch-1; ++k)
+      if (scratch[k] != 0) break;
+    nscratch -= k;
+    memmove(scratch, scratch+k, nscratch+1);
+
+    for (k=0; k < nscratch; ++k)
+        scratch[k] += '0';
+
+    /* Resize and return the resulting string. */
+    *result = realloc(scratch, nscratch+1);
 }
 
 /*Convert decimal number string into binary number*/
@@ -57,386 +102,178 @@ void dec2bin(char *bin, char *dec) {
 }
 
 /*Construct a ubgi structure*/
-ubgi new_ubgi(char *val) {
-    ubgi new;
-    unsigned long long tmp = 0;
-    int flag = 0;
-    int size_dec = strlen(val);
-    if (size_dec > 19) {
-        /*Actual size of ubgi value, it is up to 2^(size-1)*/
-        int size = 1024;
-        char binary[size];
-        dec2bin(binary, val);
+big new_big(char *val){
+    big new;
+    int size = 1024;
+    char binary[size];
+    dec2bin(binary, val);
 
-        new.is_ptr = 1;
-        new.size = (strlen(binary) % 64) ? strlen(binary) / 64 + 1
-                                         : strlen(binary) / 64;
-        new.ptr = malloc(new.size * sizeof(unsigned long long));
+    new.len = (strlen(binary) % 64) ? strlen(binary) / 64 + 1
+                                        : strlen(binary) / 64;
+    new.val = malloc(new.len * sizeof(uint64_t));
 
-        for (int i = 0; i < strlen(binary); i++) {
-            if (binary[i] - '0') {
-                new.ptr[i / 64] |= ((unsigned long long)1 << (i % 64));
-            }
-        }
-    } else {
-        for (int i = size_dec - 1; i >= 0; i--) {
-            tmp += (val[i] - '0') * power(10, size_dec - 1 - i);
-        }
-        if (tmp & 0x8000000000000000 && size_dec == 19) {
-            new.is_ptr = 1;
-            new.size = 1;
-            new.ptr = malloc(sizeof(unsigned long long));
-            *(new.ptr) = tmp;
-        } else {
-            new.is_ptr = 0;
-            new.filled = tmp;
-            new.left = MAX_INT63 - tmp;
+    for (int i = 0; i < strlen(binary); i++) {
+        if (binary[i] - '0') {
+            new.val[i / 64] |= ((uint64_t)1 << (i % 64));
         }
     }
     return new;
-};
+}
 
 /*Print the value*/
-void print_ubgi(ubgi a) {
-    if (!a.is_ptr)
-        printf("%llu\n", a.val);
-    else if (a.size == 1)
-        printf("%llu\n", *(a.ptr));
-    else {
-        printf("%llu ", (a.ptr)[a.size - 1]);
-        for (int i = a.size - 2; i > 0; i--) {
-            printf("%019llu ", (a.ptr)[i]);
-        }
-        printf("%019llu\n", (a.ptr)[0]);
-    }
+char *print_big(big a) {
+    char *text;
+    double_dabble(a.len, a.val, &text);
+    printf("%s\n", text);
+    return text;
 }
 
 /*Free the memory allocation of large number*/
-void drop_ubgi(ubgi *a) {
-    if (a->is_ptr)
-        free(a->ptr);
-    a->size = 0;
-    a->is_ptr = 0;
-    a->val = 0;
+void drop_big(big *a) {
+    if(a->val)
+        free(a->val);
+    a->len = 0;
 }
 
-void copy_ubgi(ubgi *dst, ubgi src) {
-    if (!src.is_ptr) {
-        dst->filled = src.filled;
-        dst->left = src.left;
-        dst->is_ptr = src.is_ptr;
-    } else {
-        dst->is_ptr = src.is_ptr;
-        dst->size = src.size;
-        dst->ptr = malloc(dst->size * sizeof(unsigned long long));
-        memcpy(dst->ptr, src.ptr, dst->size * sizeof(unsigned long long));
-
-    }
+void copy_big(big *dst, big src){
+    dst->len = src.len;
+    dst->val = malloc(dst->len * sizeof(uint64_t));
+    memcpy(dst->val, src.val, dst->len * sizeof(uint64_t));
 }
 
-/*Add two large number*/
-void addll(ubgi *c, ubgi a, ubgi b) {
-    unsigned long long carry = 0;
-    c->is_ptr = 1;
-    c->size = max(a.size, b.size) + 1;
-    c->ptr = malloc(c->size * sizeof(unsigned long long));
-    for (int i = 0; i < a.size && i < b.size; i++) {
-        if (MAX_INT64 - a.ptr[i] < b.ptr[i]) {
-            c->ptr[i] = b.ptr[i] - (MAX_INT64 - a.ptr[i]) - 1 + carry;
+big add_big(big a, big b){
+    big c;
+    uint64_t carry = 0;
+    c.len = max(a.len, b.len) + 1;
+    c.val = malloc(c.len * sizeof(uint64_t));
+    for (int i = 0; i < a.len && i < b.len; i++) {
+        if (MAX_INT64 - a.val[i] < b.val[i]) {
+            c.val[i] = b.val[i] - (MAX_INT64 - a.val[i]) - 1 + carry;
             carry = 1;
         } else {
-            if (MAX_INT64 - a.ptr[i] - b.ptr[i] < carry) {
-                c->ptr[i] = carry - (MAX_INT64 - a.ptr[i] - b.ptr[i]) - 1;
+            if (MAX_INT64 - a.val[i] - b.val[i] < carry) {
+                c.val[i] = carry - (MAX_INT64 - a.val[i] - b.val[i]) - 1;
                 carry = 1;
             } else {
-                c->ptr[i] = carry + a.ptr[i] + b.ptr[i];
+                c.val[i] = carry + a.val[i] + b.val[i];
                 carry = 0;
             }
         }
     }
-    if (a.size < b.size) {
-        for (int i = a.size; i < b.size; i++) {
-            if (MAX_INT64 - b.ptr[i] < carry) {
-                c->ptr[i] = carry - (MAX_INT64 - b.ptr[i]) - 1;
+    if (a.len < b.len) {
+        for (int i = a.len; i < b.len; i++) {
+            if (MAX_INT64 - b.val[i] < carry) {
+                c.val[i] = carry - (MAX_INT64 - b.val[i]) - 1;
                 carry = 1;
             } else {
-                c->ptr[i] = carry + b.ptr[i];
+                c.val[i] = carry + b.val[i];
                 carry = 0;
             }
         }
     }
-    if ((b.size < a.size)) {
-        for (int i = b.size; i < a.size; i++) {
-            if (MAX_INT64 - a.ptr[i] < carry) {
-                c->ptr[i] = carry - (MAX_INT64 - a.ptr[i]) - 1;
+    if ((b.len < a.len)) {
+        for (int i = b.len; i < a.len; i++) {
+            if (MAX_INT64 - a.val[i] < carry) {
+                c.val[i] = carry - (MAX_INT64 - a.val[i]) - 1;
                 carry = 1;
             } else {
-                c->ptr[i] = carry + a.ptr[i];
+                c.val[i] = carry + a.val[i];
                 carry = 0;
             }
         }
     }
     if (carry == 1)
-        c->ptr[c->size - 1] = carry;
+        c.val[c.len - 1] = carry;
     else {
-        c->size--;
-        c->ptr = realloc(c->ptr, c->size * sizeof(unsigned long long));
+        c.len--;
+        c.val = realloc(c.val, c.len * sizeof(uint64_t));
     }
-}
-
-/*Only a is large number*/
-void addl(ubgi *c, ubgi a, ubgi b) {
-    unsigned long long carry = 0;
-    c->is_ptr = 1;
-    c->size = a.size + 1;
-    c->ptr = malloc(c->size * sizeof(unsigned long long));
-    if (MAX_INT64 - a.ptr[0] < b.val) {
-        c->ptr[0] = b.val - (MAX_INT64 - a.ptr[0]) - 1 + carry;
-        carry = 1;
-    } else {
-        c->ptr[0] = b.val + a.ptr[0];
-    }
-    for (int i = 1; i < a.size; i++) {
-        if (MAX_INT64 - a.ptr[i] < carry) {
-            c->ptr[i] = carry - (MAX_INT64 - a.ptr[i]) - 1;
-            carry = 1;
-        } else {
-            c->ptr[i] = carry + a.ptr[i];
-            carry = 0;
-        }
-    }
-    if (carry == 1)
-        c->ptr[c->size - 1] = carry;
-    else {
-        c->size--;
-        c->ptr = realloc(c->ptr, c->size * sizeof(unsigned long long));
-    }
-}
-
-/*Neither a and b are large number*/
-void addnl(ubgi *c, ubgi a, ubgi b) {
-    if (b.left < a.val) {
-        c->is_ptr = 1;
-        c->size = 1;
-        c->ptr = malloc(c->size * sizeof(unsigned long long));
-        c->ptr[0] = a.val - (MAX_INT64 - b.val) - 1;
-    } else {
-        c->is_ptr = 0;
-        c->val = a.val + b.val;
-    }
-}
-ubgi add(ubgi a, ubgi b) {
-    ubgi c;
-    if (a.is_ptr)
-        if (b.is_ptr) 
-            addll(&c, a, b);
-        else         
-            addl(&c, a, b);
-    else
-        if (b.is_ptr)         
-            addl(&c, b, a);
-        else        
-            addnl(&c, a, b);
     return c;
 }
 
+/*Assume that a is always larger than b*/
+big sub_big(big a, big b){
+    big c;
+    c.len = (a.len > b.len)?a.len:(a.len+1);
+    c.val = malloc(c.len * sizeof(uint64_t));
 
-/*Add two large number*/
-void addll_dec(ubgi *c, ubgi a, ubgi b) {
-    unsigned long long carry = 0;
-    c->is_ptr = 1;
-    c->size = max(a.size, b.size) + 1;
-    c->ptr = malloc(c->size * sizeof(unsigned long long));
-    for (int i = 0; i < a.size && i < b.size; i++) {
-        if (MAX_INT64_DEC - a.ptr[i] < b.ptr[i]) {
-            c->ptr[i] = b.ptr[i] - (MAX_INT64_DEC - a.ptr[i]) - 1 + carry;
-            carry = 1;
-        } else {
-            if (MAX_INT64_DEC - a.ptr[i] - b.ptr[i] < carry) {
-                c->ptr[i] = carry - (MAX_INT64_DEC - a.ptr[i] - b.ptr[i]) - 1;
-                carry = 1;
-            } else {
-                c->ptr[i] = carry + a.ptr[i] + b.ptr[i];
-                carry = 0;
-            }
-        }
-    }
-    if (a.size < b.size) {
-        for (int i = a.size; i < b.size; i++) {
-            if (MAX_INT64_DEC - b.ptr[i] < carry) {
-                c->ptr[i] = carry - (MAX_INT64_DEC - b.ptr[i]) - 1;
-                carry = 1;
-            } else {
-                c->ptr[i] = carry + b.ptr[i];
-                carry = 0;
-            }
-        }
-    }
-    if ((b.size < a.size)) {
-        for (int i = b.size; i < a.size; i++) {
-            if (MAX_INT64_DEC - a.ptr[i] < carry) {
-                c->ptr[i] = carry - (MAX_INT64_DEC - a.ptr[i]) - 1;
-                carry = 1;
-            } else {
-                c->ptr[i] = carry + a.ptr[i];
-                carry = 0;
-            }
-        }
-    }
-    if (carry == 1)
-        c->ptr[c->size - 1] = carry;
-    else {
-        c->size--;
-        c->ptr = realloc(c->ptr, c->size * sizeof(unsigned long long));
-    }
-}
-
-/*Only a is large number*/
-void addl_dec(ubgi *c, ubgi a, ubgi b) {
-    unsigned long long carry = 0;
-    c->is_ptr = 1;
-    c->size = a.size + 1;
-    c->ptr = malloc(c->size * sizeof(unsigned long long));
-    if (MAX_INT64_DEC - a.ptr[0] < b.val) {
-        c->ptr[0] = b.val - (MAX_INT64_DEC - a.ptr[0]) - 1 + carry;
-        carry = 1;
-    } else {
-        c->ptr[0] = b.val + a.ptr[0];
-    }
-    for (int i = 1; i < a.size; i++) {
-        if (MAX_INT64_DEC - a.ptr[i] < carry) {
-            c->ptr[i] = carry - (MAX_INT64_DEC - a.ptr[i]) - 1;
-            carry = 1;
-        } else {
-            c->ptr[i] = carry + a.ptr[i];
-            carry = 0;
-        }
-    }
-    if (carry == 1)
-        c->ptr[c->size - 1] = carry;
-    else {
-        c->size--;
-        c->ptr = realloc(c->ptr, c->size * sizeof(unsigned long long));
-    }
-}
-
-/*Neither a and b are large number*/
-void addnl_dec(ubgi *c, ubgi a, ubgi b) {
-    if (MAX_INT64_DEC - a.val < b.val) {
-        c->is_ptr = 1;
-        c->size = 2;
-        c->ptr = malloc(c->size * sizeof(unsigned long long));
-        c->ptr[0] = a.val - (MAX_INT64_DEC - b.val) - 1;
-        c->ptr[1] += 1; 
-    } else {
-        c->is_ptr = 0;
-        c->val = a.val + b.val;
-    }
-}
-
-ubgi add_dec(ubgi a, ubgi b) {
-    ubgi c;
-    if (a.is_ptr)
-        if (b.is_ptr) 
-            addll_dec(&c, a, b);
-        else         
-            addl_dec(&c, a, b);
-    else
-        if (b.is_ptr)         
-            addl_dec(&c, b, a);
-        else        
-            addnl_dec(&c, a, b);
-    return c;
-}
-
-ubgi rshift(ubgi a){
-    ubgi c;
-    int carry=0;
-    if(a.is_ptr){
-        if(a.size == 1){
-            c.is_ptr = 0;
-            c.val = a.ptr[0] >> 1;
-            return c;
+    for(int i=0; i<a.len-1 && i<b.len; i++){
+        if(a.val[i] < b.val[0]){
+            a.val[i+1]--;
+            c.val[i] = MAX_INT64 - (b.val[i] - a.val[i] - 1);
         }
         else
-            c.is_ptr = 1;
-        /*Check whether reduce size or not*/
-        if(!((a.ptr)[a.size-1] & 0xfffffffffffffffe)){
-            /*ptr[msb] == 1*/
-            c.size = a.size - 1;
-            c.ptr = malloc(c.size * sizeof(unsigned long long));
-            carry = 1;
-        }
-        else
-        {
-            c.size = a.size;
-            c.ptr = malloc(c.size * sizeof(unsigned long long));
-        }
-        
-        for(int i=c.size-1; i>=0; i--){
-            c.ptr[i] = (a.ptr[i] >> 1);
-            if(carry)
-                c.ptr[i] |= 0x8000000000000000;
-            if(a.ptr[i] & 0x1)
-                carry = 1;
-        }
+            c.val[i] = a.val[i] - b.val[i];
     }
-    else{
-        c.is_ptr = 0;
-        c.val = a.val >> 1;
-    }
-    return c;
-}/*
-void add_mul(ubgi *c, ubgi a, ubgi b){
-    unsigned long long carry = 0;
-    for(int i=c->size-1 ;i>=b.size; i--){
-        if (MAX_INT64 - c->ptr[i] < a.ptr[i]) {
-            c->ptr[i] = c->ptr[i] - (MAX_INT64 - a.ptr[i]) - 1 + carry;
-            carry = 1;
-        } else {
-            if (MAX_INT64 - a.ptr[i] - c->ptr[i] < carry) {
-                c->ptr[i] = carry - (MAX_INT64 - a.ptr[i] - c->ptr[i]) - 1;
-                carry = 1;
-            } else {
-                c->ptr[i] = carry + a.ptr[i] + c->ptr[i];
-                carry = 0;
-            }
-        }
-    }
-}*//*
-void mul_ll(ubgi *c, ubgi a, ubgi b){
-    for(int i=0; i<b.size; i++){
-        c->ptr[i] = b.ptr[i];
-    }
-    for(int i=0; i<b.size * 64; i++){
-        if(c->ptr[0] & 0x1)
-            add_mul(&c, a, b);
-        *c = rshift(*c);
-    }
-}*/
-/*
-ubgi mul(ubgi a, ubgi b){
-    ubgi c;
-    if(a.is_ptr && b.is_ptr)
-        c.size = a.is_ptr + b.is_ptr;
-    else if(a.is_ptr && !b.is_ptr){
-        c.size = a.is_ptr + 1;
-    }
-    else if(!a.is_ptr && b.is_ptr){
-        c.size = b.is_ptr + 1;
-    }
+    if(a.len == b.len)
+        c.val[c.len] = a.val[a.len] - b.val[b.len];
     else
-        c.size = 2;
-    c.is_ptr = 1;
-    c.ptr = malloc(c.size * sizeof(unsigned long long));
-
-    unsigned long long count = c.size * 64;
-
-    for(int i=)
-    for(unsigned long long i=0; i<count; i++){
-
-    }
+        c.val[c.len] = a.val[a.len];
 
     return c;
 }
-*/
+
+// void cut_big(big *dst, big src, int start, int end){
+//     dst->len = end - start;
+//     dst->val = malloc(dst->len * sizeof(uint64_t));
+//     int k=0;
+//     for(int i=start; i<end; i++)
+//         dst->val[k++] = src.val[i];
+// }
+
+// big mul(big a, int b){
+//     big c;
+// }
+
+// big mul(big a, big b){
+//     big c;
+//     c.len = 2;
+//     c.val = malloc(c.len * sizeof(uint64_t));
+//     c.val[0] = b.val[0];
+
+//     int shifted;
+//     for(int i=0; i<64; i++){
+//         if(c.val[0] & 0x1)
+//             c.val[1] += a.val[0];
+//         shifted = c.val[1] & 0x1;
+//         c.val[1] >>= 1;
+//         c.val[0] >>= 1;
+//         if(shifted)
+//             c.val[0] |= 0x8000000000000000;
+//     }
+//     return c;
+// }
+
+// /*a and b's len are the same*/
+// big karatsuba_big(big a, big b){
+//     big a_h, a_l, b_h, b_l, c;
+
+//     if(a.len == 1 && b.len == 1){
+//         return mul(a, b);
+//     }
+
+//     int len = a.len;
+//     int k = len/2;
+//     c.len = 2*a.len;
+//     c.val = malloc(c.len * sizeof(uint64_t));
+
+//     cut_big(&a_l, a, 0, k);
+//     cut_big(&a_h, a, k, a.len);
+//     cut_big(&b_l, b, 0, k);
+//     cut_big(&b_h, b, k, b.len);
+
+//     big tmp0, tmp1, tmp2, a_hl, b_hl;
+
+//     a_hl = add_big(a_h, a_l);
+//     b_hl = add_big(b_h, b_l);
+
+//     tmp0 = karatsuba_big(a_h, b_h);
+//     tmp1 = karatsuba_big(a_l, b_l);
+//     tmp2 = karatsuba_big(a_hl, b_hl);
+    
+//     tmp2 = sub_big(tmp2, add_big(tmp0, tmp1));
+
+//     mul(tmp0, power(10, 2*k));
+
+//     return c;
+// }

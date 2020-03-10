@@ -30,5 +30,7 @@ dkms.conf
 client
 out
 big/test
+big/helper/*.txt
 
 .DS_Store
+/bignum

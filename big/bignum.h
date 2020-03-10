@@ -13,35 +13,34 @@
 #endif
 
 typedef union UBIGNUMI {
-    unsigned long long val;
+    uint64_t val;
     struct {
-        unsigned long long filled : 63;
-        unsigned long long left;
+        uint64_t filled : 63;
+        uint64_t left;
         /*Indicate that whether ubgi is a large number or not*/
         uint8_t is_ptr : 1;
     };
     struct {
         /*[lsb][...]...[...][msb]*/
-        unsigned long long *ptr;
+        uint64_t *ptr;
         /*Length of ptr array*/
-        unsigned long long size : 63;
+        uint64_t size : 63;
     };
 } ubgi;
 
-unsigned long long power(unsigned long long a, int b);
+typedef struct UBIGNUM {
+    uint64_t *val;
+    int len;
+} big;
+
+uint64_t power(uint64_t a, int b);
+void double_dabble(int n, const uint64_t *arr, char **result);
 void dec2bin(char *bin, char *dec);
-ubgi new_ubgi(char *val);
-void print_ubgi(ubgi a);
-void drop_ubgi(ubgi *a);
-void copy_ubgi(ubgi *dst, ubgi src);
-void addll(ubgi *c, ubgi a, ubgi b);
-void addl(ubgi *c, ubgi a, ubgi b);
-void addnl(ubgi *c, ubgi a, ubgi b);
-ubgi add(ubgi a, ubgi b);
-void addll_dec(ubgi *c, ubgi a, ubgi b);
-void addl_dec(ubgi *c, ubgi a, ubgi b);
-void addnl_dec(ubgi *c, ubgi a, ubgi b);
-ubgi add_dec(ubgi a, ubgi b);
-ubgi rshift(ubgi a);
+big new_big(char *val);
+char *print_big(big a);
+void drop_big(big *a);
+void copy_big(big *dst, big src);
+big add_big(big a, big b);
+big mul_big(big a, big b);
 
 #endif
