@@ -1,9 +1,11 @@
-#include "bignum.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-void fib(int n) {
+#include "bignum.h"
+
+void fib(int n)
+{
     big f[3];
     char f0[100] = "0", f1[100] = "1";
     f[0] = new_big(f0);
@@ -17,18 +19,19 @@ void fib(int n) {
     }
     printf("f(%d) = ", n);
     char *out = print_big(f[2]);
-    for(int i=0; i<3; i++)
+    for (int i = 0; i < 3; i++)
         drop_big(&f[i]);
 
     char *output = malloc(10 + strlen(out));
     sprintf(output, "%d\n%s\n", n, out);
-    
+
     fputs(output, fp);
     free(out);
     fclose(fp);
 }
 
-void fib_fast(int k){
+void fib_fast(int k)
+{
     int bs = 0, saved = k;
     while (k) {
         bs++;
@@ -38,14 +41,14 @@ void fib_fast(int k){
     FILE *fp = fopen("./helper/out.txt", "w");
     big t1, t2, a, b;
     char f0[100] = "0", f1[100] = "1";
-    a = new_big(f0);    
-    b = new_big(f1); 
+    a = new_big(f0);
+    b = new_big(f1);
     for (int i = bs; i > 0; i--) {
         t1 = mul_big(a, (sub_big(lshift_big(b), a)));
         t2 = add_big(mul_big(b, b), mul_big(a, a));
         copy_big(&a, t1);
         copy_big(&b, t2);
-        
+
         if ((32 - __builtin_clz(k)) == i && k > 0) {
             t1 = add_big(a, b);
             copy_big(&a, b);
@@ -56,9 +59,9 @@ void fib_fast(int k){
 
     printf("f(%d) = ", saved);
     char *ans = print_big(a);
-    char *out = malloc(10+strlen(ans));
+    char *out = malloc(10 + strlen(ans));
     sprintf(out, "%d\n%s\n", saved, ans);
-    
+
     fputs(out, fp);
     fclose(fp);
     drop_big(&a);
@@ -67,7 +70,8 @@ void fib_fast(int k){
     drop_big(&t2);
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
     if (argc < 2)
         return -1;
 
