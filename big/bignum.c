@@ -110,12 +110,11 @@ big new_big(char *val){
 
     new.len = (strlen(binary) % 64) ? strlen(binary) / 64 + 1
                                         : strlen(binary) / 64;
-    new.val = malloc(new.len * sizeof(uint64_t));
+    new.val = calloc(new.len, sizeof(uint64_t));
 
     for (int i = 0; i < strlen(binary); i++) {
-        if (binary[i] - '0') {
+        if (binary[i] - '0')
             new.val[i / 64] |= ((uint64_t)1 << (i % 64));
-        }
     }
     return new;
 }
@@ -128,6 +127,17 @@ char *print_big(big a) {
     return text;
 }
 
+void print_hex_big(big a) {
+    printf("%llx ", a.val[a.len-1]);
+    if(a.len > 1){
+        for(int i=a.len-2; i>0; i--)
+            printf("%016llx ", a.val[i]);
+        printf("%016llx\n", a.val[0]);
+    }
+    else
+        printf("\n");
+}
+
 /*Free the memory allocation of large number*/
 void drop_big(big *a) {
     if(a->val)
@@ -136,6 +146,7 @@ void drop_big(big *a) {
 }
 
 void copy_big(big *dst, big src){
+    drop_big(dst);
     dst->len = src.len;
     dst->val = malloc(dst->len * sizeof(uint64_t));
     memcpy(dst->val, src.val, dst->len * sizeof(uint64_t));
@@ -145,7 +156,7 @@ big add_big(big a, big b){
     big c;
     uint64_t carry = 0;
     c.len = max(a.len, b.len) + 1;
-    c.val = malloc(c.len * sizeof(uint64_t));
+    c.val = calloc(c.len, sizeof(uint64_t));
     for (int i = 0; i < a.len && i < b.len; i++) {
         if (MAX_INT64 - a.val[i] < b.val[i]) {
             c.val[i] = b.val[i] - (MAX_INT64 - a.val[i]) - 1 + carry;
@@ -194,11 +205,11 @@ big add_big(big a, big b){
 /*Assume that a is always larger than b*/
 big sub_big(big a, big b){
     big c;
-    c.len = (a.len > b.len)?a.len:(a.len+1);
-    c.val = malloc(c.len * sizeof(uint64_t));
+    c.len = a.len;
+    c.val = calloc(c.len, sizeof(uint64_t));
 
     for(int i=0; i<a.len-1 && i<b.len; i++){
-        if(a.val[i] < b.val[0]){
+        if(a.val[i] < b.val[i]){
             a.val[i+1]--;
             c.val[i] = MAX_INT64 - (b.val[i] - a.val[i] - 1);
         }
@@ -206,74 +217,122 @@ big sub_big(big a, big b){
             c.val[i] = a.val[i] - b.val[i];
     }
     if(a.len == b.len)
-        c.val[c.len] = a.val[a.len] - b.val[b.len];
-    else
-        c.val[c.len] = a.val[a.len];
+        c.val[c.len-1] = a.val[a.len-1] - b.val[b.len-1];
+    else{
+        for(int i=b.len; i<a.len; i++)
+        c.val[i] = a.val[i];
+    }
 
     return c;
 }
 
-// void cut_big(big *dst, big src, int start, int end){
-//     dst->len = end - start;
-//     dst->val = malloc(dst->len * sizeof(uint64_t));
-//     int k=0;
-//     for(int i=start; i<end; i++)
-//         dst->val[k++] = src.val[i];
-// }
+big lshift_big(big a){
+    big c;
+    uint64_t shifted = 0;
+    if(a.val[a.len-1] & 0x8000000000000000)
+        c.len = a.len+1;
+    else
+        c.len = a.len;
 
-// big mul(big a, int b){
-//     big c;
-// }
+    c.val = calloc(c.len, sizeof(uint64_t));
 
-// big mul(big a, big b){
-//     big c;
-//     c.len = 2;
-//     c.val = malloc(c.len * sizeof(uint64_t));
-//     c.val[0] = b.val[0];
+    if(a.val[a.len-1] & 0x8000000000000000)
+        c.val[c.len-1] |= (uint64_t)1;
 
-//     int shifted;
-//     for(int i=0; i<64; i++){
-//         if(c.val[0] & 0x1)
-//             c.val[1] += a.val[0];
-//         shifted = c.val[1] & 0x1;
-//         c.val[1] >>= 1;
-//         c.val[0] >>= 1;
-//         if(shifted)
-//             c.val[0] |= 0x8000000000000000;
-//     }
-//     return c;
-// }
+    for(int i=a.len-1; i>0; i--){
+        shifted = a.val[i-1] & 0x8000000000000000;
 
-// /*a and b's len are the same*/
-// big karatsuba_big(big a, big b){
-//     big a_h, a_l, b_h, b_l, c;
+        c.val[i] = a.val[i] << 1;
+        
+        if(shifted)
+            c.val[i] |= (uint64_t)1;
+    }
+    c.val[0] = a.val[0] << 1;
 
-//     if(a.len == 1 && b.len == 1){
-//         return mul(a, b);
-//     }
+    return c;
+}
 
-//     int len = a.len;
-//     int k = len/2;
-//     c.len = 2*a.len;
-//     c.val = malloc(c.len * sizeof(uint64_t));
-
-//     cut_big(&a_l, a, 0, k);
-//     cut_big(&a_h, a, k, a.len);
-//     cut_big(&b_l, b, 0, k);
-//     cut_big(&b_h, b, k, b.len);
-
-//     big tmp0, tmp1, tmp2, a_hl, b_hl;
-
-//     a_hl = add_big(a_h, a_l);
-//     b_hl = add_big(b_h, b_l);
-
-//     tmp0 = karatsuba_big(a_h, b_h);
-//     tmp1 = karatsuba_big(a_l, b_l);
-//     tmp2 = karatsuba_big(a_hl, b_hl);
+/*
+*  big c {
+*  len = a.len + b.len
+*  *val = [a.len-1]...[b.len][b.len-1]...[0]
+*         |------RESHI------||----RESLO----|
+*  }
+*/
+big mul_big(big a, big b){
+    big c;
+    if(a.len==1 && a.val[0] == 0){
+        c.len = 1;
+        c.val = calloc(c.len, sizeof(uint64_t));
+        c.val[0] = 0;
+        return c;
+    }
+    if(b.len==1 && b.val[0] == 0){
+        c.len = 1;
+        c.val = calloc(c.len, sizeof(uint64_t));
+        c.val[0] = 0;
+        return c;
+    }
+    if(a.len==1 && a.val[0] == 1){
+        c.len = b.len;
+        c.val = calloc(c.len, sizeof(uint64_t));
+        for(int i=0; i<b.len; i++)
+            c.val[i] = b.val[i];
+        return c;
+    }
+    if(b.len==1 && b.val[0] == 1){
+        c.len = a.len;
+        c.val = calloc(c.len, sizeof(uint64_t));
+        for(int i=0; i<a.len; i++)
+            c.val[i] = a.val[i];
+        return c;
+    }
+    c.len = a.len + b.len;
+    c.val = calloc(c.len, sizeof(uint64_t));
+    for(int i=0; i<b.len; i++)
+        c.val[i] = b.val[i];
     
-//     tmp2 = sub_big(tmp2, add_big(tmp0, tmp1));
+    big RESLO, RESHI;
+    RESLO.len = b.len;
+    RESLO.val = &c.val[0];
+    RESHI.len = a.len;
+    RESHI.val = &c.val[b.len];
 
-//     mul(tmp0, power(10, 2*k));
+    for(int i=0; i< b.len<<6; i++){
+        if(RESLO.val[0] & (uint64_t)1)
+            RESHI = add_big(RESHI, a);
+        /*right shift RES*/
+        uint64_t shifted = 0;
+        for(int j=0; j<RESLO.len-1; j++){
+            shifted = RESLO.val[j+1] & (uint64_t)1;
+            RESLO.val[j] >>= 1;
+            if(shifted)
+                RESLO.val[j] |= 0x8000000000000000;
+        }
+        shifted = RESHI.val[0] & (uint64_t)1;
+        RESLO.val[RESLO.len-1] >>= 1;
+        if(shifted)
+            RESLO.val[RESLO.len-1] |= 0x8000000000000000;
+        for(int j=0; j<RESHI.len-1; j++){
+            shifted = RESHI.val[j+1] & 0x1;
+            RESHI.val[j] >>= 1;
+            if(shifted)
+                RESHI.val[j] |= 0x8000000000000000;
+        }
+        RESHI.val[RESHI.len-1] >>= 1;
+    }
 
-//     return c;
-// }
+    for(int i=0; i<RESLO.len; i++)
+        c.val[i] = RESLO.val[i];
+    for(int i=0; i<RESHI.len; i++)
+        c.val[RESLO.len + i] = RESHI.val[i];
+
+    for(int i=c.len-1; i>=0; i--)
+        if(c.val[i]!=0x0){
+            c.len = i+1;
+            c.val = realloc(c.val, (i+1) * sizeof(uint64_t));
+            break;
+        }
+
+    return c;
+}

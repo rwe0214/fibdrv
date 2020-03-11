@@ -38,9 +38,12 @@ void double_dabble(int n, const uint64_t *arr, char **result);
 void dec2bin(char *bin, char *dec);
 big new_big(char *val);
 char *print_big(big a);
+void print_hex_big(big a);
 void drop_big(big *a);
 void copy_big(big *dst, big src);
 big add_big(big a, big b);
+big sub_big(big a, big b);
+big lshift_big(big a);
 big mul_big(big a, big b);
 
 #endif
