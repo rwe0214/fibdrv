@@ -1,5 +1,5 @@
-#ifndef __LINENOISE_H
-#define __LINENOISE_H
+#ifndef __BIGNUM_H
+#define __BIGNUM_H
 #include <stdint.h>
 
 #ifndef MAX_INT64
